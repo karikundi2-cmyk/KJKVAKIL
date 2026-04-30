@@ -1,0 +1,721 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import Navbar from '../components/Navbar';
+import axios from 'axios';
+import toast from 'react-hot-toast';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Filter, MapPin, Calendar, DollarSign, AlertCircle, CheckCircle2, Loader2, Send, Users, ArrowRight, ChevronDown, ChevronUp, Shield, Briefcase, FileText, Clock, User, MessageCircle } from 'lucide-react';
+
+import API_URL from '../lib/api';
+import CaseChat from '../components/CaseChat';
+
+const LawyerDashboard = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('cases');
+  const [cases, setCases] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({
+    location: '',
+    urgency: '',
+    case_type: '',
+    type: '',
+    domain: '',
+    category: '',
+  });
+  const [acceptingCase, setAcceptingCase] = useState(null);
+
+  // My Active Cases
+  const [myCases, setMyCases] = useState([]);
+  const [loadingMyCases, setLoadingMyCases] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(null);
+  const [expandedMyCase, setExpandedMyCase] = useState(null);
+  const [openChatCase, setOpenChatCase] = useState(null);
+  const [unreadByCase, setUnreadByCase] = useState({});
+
+  // Referrals
+  const [referrals, setReferrals] = useState({ sent: [], received: [] });
+  const [loadingReferrals, setLoadingReferrals] = useState(false);
+  const [lawyers, setLawyers] = useState([]);
+  const [showReferModal, setShowReferModal] = useState(null);
+  const [referLawyerId, setReferLawyerId] = useState('');
+  const [referNotes, setReferNotes] = useState('');
+
+  useEffect(() => {
+    fetchCases();
+    fetchLawyers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  useEffect(() => {
+    if (activeTab === 'referrals') fetchReferrals();
+    if (activeTab === 'mycases') fetchMyCases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  useEffect(() => {
+    const fetchUnread = async () => {
+      try {
+        const { data } = await axios.get(`${API_URL}/api/messages/unread-summary`);
+        setUnreadByCase(data?.per_case || {});
+      } catch {}
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchCases = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (filters.location) params.append('location', filters.location);
+      if (filters.urgency) params.append('urgency', filters.urgency);
+      if (filters.case_type) params.append('case_type', filters.case_type);
+      if (filters.type) params.append('type', filters.type);
+      if (filters.domain) params.append('domain', filters.domain);
+      if (filters.category) params.append('category', filters.category);
+      const { data } = await axios.get(`${API_URL}/api/cases?${params.toString()}`, {  });
+      setCases(data);
+    } catch {}
+    finally { setLoading(false); }
+  };
+
+  const fetchLawyers = async () => {
+    try {
+      const { data } = await axios.get(`${API_URL}/api/lawyers`);
+      setLawyers(data.filter(l => l.id !== user?.id));
+    } catch {}
+  };
+
+  const fetchReferrals = async () => {
+    setLoadingReferrals(true);
+    try {
+      const { data } = await axios.get(`${API_URL}/api/referrals`, {  });
+      setReferrals(data);
+    } catch {}
+    finally { setLoadingReferrals(false); }
+  };
+
+  const handleAccept = async (caseId) => {
+    setAcceptingCase(caseId);
+    try {
+      await axios.put(`${API_URL}/api/cases/${caseId}/accept`, {}, {  });
+      toast.success('Case accepted! Find it in "My Active Cases".');
+      fetchCases();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to accept case');
+    } finally {
+      setAcceptingCase(null);
+    }
+  };
+
+  const fetchMyCases = async () => {
+    setLoadingMyCases(true);
+    try {
+      const { data } = await axios.get(`${API_URL}/api/lawyer/dashboard`);
+      setMyCases(data);
+    } catch (err) {
+      toast.error('Failed to load your cases');
+    } finally {
+      setLoadingMyCases(false);
+    }
+  };
+
+  const handleUpdateStatus = async (caseId, newStatus) => {
+    setUpdatingStatus(caseId);
+    try {
+      await axios.patch(`${API_URL}/api/lawyer/case/${caseId}/status`, {
+        new_status: newStatus,
+      });
+      toast.success(`Case marked as "${newStatus}"`);
+      fetchMyCases();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to update status');
+    } finally {
+      setUpdatingStatus(null);
+    }
+  };
+
+  const handleRefer = async (caseId) => {
+    if (!referLawyerId) { toast.error('Select a lawyer'); return; }
+    try {
+      await axios.post(`${API_URL}/api/referrals`, {
+        case_id: caseId,
+        referred_to_lawyer_id: referLawyerId,
+        notes: referNotes
+      }, {  });
+      toast.success('Case referred!');
+      setShowReferModal(null);
+      setReferLawyerId('');
+      setReferNotes('');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to refer');
+    }
+  };
+
+  const handleAcceptReferral = async (referralId) => {
+    try {
+      await axios.put(`${API_URL}/api/referrals/${referralId}/accept`, {}, {  });
+      toast.success('Referral accepted!');
+      fetchReferrals();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to accept referral');
+    }
+  };
+
+  const getUrgencyConfig = (urgency) => {
+    switch (urgency) {
+      case 'Critical': return { color: 'bg-red-100 text-red-700 border-red-200', icon: AlertCircle };
+      case 'High': return { color: 'bg-orange-100 text-orange-700 border-orange-200', icon: AlertCircle };
+      case 'Medium': return { color: 'bg-blue-100 text-blue-700 border-blue-200', icon: Calendar };
+      default: return { color: 'bg-green-100 text-green-700 border-green-200', icon: CheckCircle2 };
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100" data-testid="lawyer-dashboard-page">
+      <Navbar />
+
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="mb-6">
+          <h1 className="font-heading text-4xl font-bold text-slate-900 mb-2" data-testid="dashboard-title">
+            Lawyer Dashboard
+          </h1>
+          <p className="text-lg text-slate-600">Manage cases and referrals</p>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-2 mb-6 flex-wrap" data-testid="dashboard-tabs">
+          {[
+            { id: 'cases', label: 'Available Cases', icon: FileText },
+            { id: 'mycases', label: 'My Active Cases', icon: Briefcase },
+            { id: 'referrals', label: 'Referrals', icon: Send },
+          ].map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                activeTab === id ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+              }`}
+              data-testid={`tab-${id}`}
+            >
+              <Icon className="w-4 h-4" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'cases' && (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Filters */}
+            <aside className="lg:col-span-1" data-testid="filter-sidebar">
+              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 sticky top-24">
+                <div className="flex items-center gap-2 mb-6">
+                  <Filter className="w-5 h-5 text-slate-700" />
+                  <h2 className="font-heading text-xl font-semibold text-slate-900">Filters</h2>
+                </div>
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Case Type</label>
+                    <select
+                      value={filters.case_type}
+                      onChange={(e) => setFilters({ ...filters, case_type: e.target.value })}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none text-slate-900 bg-white"
+                      data-testid="filter-case-type"
+                    >
+                      <option value="">All Types</option>
+                      <option value="Criminal">Criminal</option>
+                      <option value="Civil">Civil</option>
+                      <option value="Family">Family</option>
+                      <option value="Property">Property</option>
+                      <option value="Employment">Employment</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Location</label>
+                    <input
+                      type="text"
+                      value={filters.location}
+                      onChange={(e) => setFilters({ ...filters, location: e.target.value })}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none text-slate-900"
+                      placeholder="e.g., Mumbai"
+                      data-testid="filter-location"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Urgency</label>
+                    <select
+                      value={filters.urgency}
+                      onChange={(e) => setFilters({ ...filters, urgency: e.target.value })}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none text-slate-900 bg-white"
+                      data-testid="filter-urgency"
+                    >
+                      <option value="">All Levels</option>
+                      <option value="Low">Low</option>
+                      <option value="Medium">Medium</option>
+                      <option value="High">High</option>
+                      <option value="Critical">Critical</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Classification · type</label>
+                    <select
+                      value={filters.type}
+                      onChange={(e) => setFilters({ ...filters, type: e.target.value })}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none text-slate-900 bg-white"
+                      data-testid="filter-class-type"
+                    >
+                      <option value="">Any</option>
+                      <option value="Non-Criminal">Non-Criminal</option>
+                      <option value="Criminal">Criminal</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Classification · domain</label>
+                    <select
+                      value={filters.domain}
+                      onChange={(e) => setFilters({ ...filters, domain: e.target.value })}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none text-slate-900 bg-white"
+                      data-testid="filter-class-domain"
+                    >
+                      <option value="">Any</option>
+                      <option value="Non-Judicial">Non-Judicial</option>
+                      <option value="Judicial">Judicial</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Classification · category</label>
+                    <select
+                      value={filters.category}
+                      onChange={(e) => setFilters({ ...filters, category: e.target.value })}
+                      className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none text-slate-900 bg-white"
+                      data-testid="filter-class-category"
+                    >
+                      <option value="">Any</option>
+                      <option value="General">General</option>
+                      <option value="Tenant">Tenant</option>
+                      <option value="Insurance">Insurance</option>
+                    </select>
+                  </div>
+                  <button
+                    onClick={() =>
+                      setFilters({
+                        location: '',
+                        urgency: '',
+                        case_type: '',
+                        type: '',
+                        domain: '',
+                        category: '',
+                      })
+                    }
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium py-2 px-4 rounded-lg"
+                    data-testid="clear-filters-button"
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              </div>
+            </aside>
+
+            {/* Cases Feed */}
+            <main className="lg:col-span-3" data-testid="case-feed">
+              <div className="mb-4 bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-slate-600">
+                    <span className="font-bold text-slate-900 text-2xl">{cases.length}</span> cases available
+                  </p>
+                </div>
+              </div>
+
+              {loading ? (
+                <div className="flex items-center justify-center py-20" data-testid="loading-indicator">
+                  <Loader2 className="w-12 h-12 text-slate-400 animate-spin" />
+                </div>
+              ) : cases.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center" data-testid="no-cases-message">
+                  <Filter className="w-8 h-8 text-slate-400 mx-auto mb-3" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No cases found</h3>
+                  <p className="text-slate-600">Try adjusting your filters</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {cases.map((caseItem) => {
+                    const urgencyConfig = getUrgencyConfig(caseItem.urgency);
+                    const UrgencyIcon = urgencyConfig.icon;
+                    return (
+                      <div key={caseItem.id} className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 hover:shadow-xl transition-all" data-testid={`case-card-${caseItem.id}`}>
+                        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-3 flex-wrap">
+                              <h3 className="font-heading text-2xl font-bold text-slate-900">{caseItem.case_type} Law</h3>
+                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${urgencyConfig.color}`}>
+                                <UrgencyIcon className="w-3 h-3" /> {caseItem.urgency}
+                              </span>
+                              {(caseItem.nyayId || caseItem.nyay_id) && (
+                                <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold bg-slate-900 text-white px-2.5 py-1 rounded-full" data-testid={`nyay-${caseItem.id}`}>
+                                  <Shield className="w-3 h-3" /> {caseItem.nyayId || caseItem.nyay_id}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600 mb-2">
+                              <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />{caseItem.location}</span>
+                              <span className="flex items-center gap-1"><DollarSign className="w-4 h-4" />{caseItem.budget}</span>
+                              <span className="flex items-center gap-1"><Calendar className="w-4 h-4" />{new Date(caseItem.created_at).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                          <p className="text-slate-700 leading-relaxed text-sm">{caseItem.description}</p>
+                        </div>
+                        <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                          <span className="text-sm text-slate-600">Client: <span className="font-semibold text-slate-900">{caseItem.client_name}</span></span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setShowReferModal(caseItem.id)}
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-4 py-2.5 rounded-lg transition-colors flex items-center gap-2 text-sm"
+                              data-testid={`refer-case-${caseItem.id}`}
+                            >
+                              <Send className="w-4 h-4" /> Refer
+                            </button>
+                            <button
+                              onClick={() => handleAccept(caseItem.id)}
+                              disabled={acceptingCase === caseItem.id}
+                              className="bg-slate-900 hover:bg-slate-800 text-white font-semibold px-6 py-2.5 rounded-lg transition-all disabled:opacity-50 flex items-center gap-2"
+                              data-testid={`accept-case-${caseItem.id}`}
+                            >
+                              {acceptingCase === caseItem.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                              Accept
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Refer Modal */}
+                        {showReferModal === caseItem.id && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl"
+                            data-testid={`refer-modal-${caseItem.id}`}
+                          >
+                            <h4 className="text-sm font-semibold text-slate-800 mb-3">Refer to Another Lawyer</h4>
+                            <select
+                              value={referLawyerId}
+                              onChange={(e) => setReferLawyerId(e.target.value)}
+                              className="w-full border border-slate-200 rounded-lg p-2 text-sm mb-2 bg-white"
+                              data-testid="refer-lawyer-select"
+                            >
+                              <option value="">Select a lawyer...</option>
+                              {lawyers.map(l => (
+                                <option key={l.id} value={l.id}>{l.name} - {l.specialization} ({l.location})</option>
+                              ))}
+                            </select>
+                            <input
+                              type="text"
+                              value={referNotes}
+                              onChange={(e) => setReferNotes(e.target.value)}
+                              placeholder="Add notes (optional)"
+                              className="w-full border border-slate-200 rounded-lg p-2 text-sm mb-3"
+                              data-testid="refer-notes-input"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleRefer(caseItem.id)}
+                                className="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2 px-4 rounded-lg"
+                                data-testid="confirm-refer-btn"
+                              >
+                                Send Referral
+                              </button>
+                              <button
+                                onClick={() => { setShowReferModal(null); setReferLawyerId(''); setReferNotes(''); }}
+                                className="bg-slate-100 text-slate-600 text-sm font-medium py-2 px-4 rounded-lg"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </main>
+          </div>
+        )}
+
+        {/* My Active Cases Tab */}
+        {activeTab === 'mycases' && (
+          <div data-testid="my-active-cases-section">
+            <div className="mb-4 bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-slate-600">
+                    <span className="font-bold text-slate-900 text-2xl">{myCases.length}</span> active case{myCases.length !== 1 ? 's' : ''}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">Cases you've accepted from clients</p>
+                </div>
+                <button
+                  onClick={fetchMyCases}
+                  className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg font-medium"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {loadingMyCases ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="w-12 h-12 text-slate-400 animate-spin" />
+              </div>
+            ) : myCases.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center" data-testid="no-active-cases">
+                <Briefcase className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-xl font-semibold text-slate-900 mb-2">No active cases yet</h3>
+                <p className="text-slate-600 mb-4">Accept cases from the "Available Cases" tab to start working on them.</p>
+                <button
+                  onClick={() => setActiveTab('cases')}
+                  className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  Browse Available Cases <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {myCases.map((c) => {
+                  const isExpanded = expandedMyCase === c.id;
+                  const statusColors = {
+                    accepted: 'bg-blue-100 text-blue-700 border-blue-200',
+                    in_progress: 'bg-amber-100 text-amber-700 border-amber-200',
+                    awaiting_documents: 'bg-purple-100 text-purple-700 border-purple-200',
+                    in_court: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+                    completed: 'bg-green-100 text-green-700 border-green-200',
+                    closed: 'bg-slate-200 text-slate-700 border-slate-300',
+                  };
+                  return (
+                    <motion.div
+                      key={c.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition-shadow"
+                      data-testid={`my-case-${c.id}`}
+                    >
+                      <div className="p-5">
+                        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 flex-wrap mb-2">
+                              <h3 className="font-heading text-xl font-bold text-slate-900">
+                                {c.case_type || 'Case'} {c.case_type ? 'Law' : ''}
+                              </h3>
+                              <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${statusColors[c.status] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                                {c.status?.replace(/_/g, ' ')}
+                              </span>
+                              {c.nyayId && (
+                                <span className="inline-flex items-center gap-1 text-xs font-mono font-semibold bg-slate-900 text-white px-2.5 py-1 rounded-full">
+                                  <Shield className="w-3 h-3" /> {c.nyayId}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
+                              {c.client_name && (
+                                <span className="flex items-center gap-1"><User className="w-3 h-3" />{c.client_name}</span>
+                              )}
+                              {c.location && (
+                                <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{c.location}</span>
+                              )}
+                              {c.urgency && (
+                                <span className="flex items-center gap-1"><AlertCircle className="w-3 h-3" />{c.urgency}</span>
+                              )}
+                              {c.budget && (
+                                <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />{c.budget}</span>
+                              )}
+                              {c.created_at && (
+                                <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setExpandedMyCase(isExpanded ? null : c.id)}
+                            className="text-slate-400 hover:text-slate-600"
+                          >
+                            {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                          </button>
+                        </div>
+
+                        <div className="bg-slate-50 rounded-lg p-3 mb-3">
+                          <p className={`text-sm text-slate-700 ${isExpanded ? '' : 'line-clamp-2'}`}>{c.caseDescription}</p>
+                        </div>
+
+                        {/* Chat toggle */}
+                        <div className="flex items-center justify-end mb-3">
+                          <button
+                            onClick={() => {
+                              setOpenChatCase(openChatCase === c.id ? null : c.id);
+                              if (openChatCase !== c.id) {
+                                setUnreadByCase((prev) => ({ ...prev, [c.id]: 0 }));
+                              }
+                            }}
+                            className={`relative flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                              openChatCase === c.id
+                                ? 'bg-slate-900 text-white'
+                                : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200'
+                            }`}
+                            data-testid={`chat-toggle-${c.id}`}
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            {openChatCase === c.id ? 'Close Chat' : 'Message Client'}
+                            {unreadByCase[c.id] > 0 && openChatCase !== c.id && (
+                              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1" data-testid={`chat-badge-${c.id}`}>
+                                {unreadByCase[c.id] > 9 ? '9+' : unreadByCase[c.id]}
+                              </span>
+                            )}
+                          </button>
+                        </div>
+
+                        {openChatCase === c.id && (
+                          <div className="mb-4">
+                            <CaseChat
+                              caseId={c.id}
+                              currentUserId={user?.id}
+                              currentUserName={user?.name}
+                              otherPartyName={c.client_name}
+                            />
+                          </div>
+                        )}
+
+                        {/* Status update actions */}
+                        <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+                          <span className="text-xs text-slate-500 self-center mr-2 font-medium">Update status:</span>
+                          {[
+                            { label: 'In Progress', value: 'in_progress' },
+                            { label: 'Awaiting Docs', value: 'awaiting_documents' },
+                            { label: 'In Court', value: 'in_court' },
+                            { label: 'Completed', value: 'completed' },
+                            { label: 'Close Case', value: 'closed' },
+                          ].map(({ label, value }) => (
+                            <button
+                              key={value}
+                              onClick={() => handleUpdateStatus(c.id, value)}
+                              disabled={updatingStatus === c.id || c.status === value}
+                              className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                                c.status === value
+                                  ? 'bg-slate-900 text-white'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                              }`}
+                              data-testid={`status-${value}-${c.id}`}
+                            >
+                              {updatingStatus === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Status history (expanded) */}
+                        {isExpanded && c.status_history?.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-slate-100">
+                            <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                              <Clock className="w-4 h-4" /> Status History
+                            </h4>
+                            <div className="space-y-2">
+                              {c.status_history.slice().reverse().map((h, i) => (
+                                <div key={i} className="flex items-start gap-3 text-xs">
+                                  <div className="w-1.5 h-1.5 bg-slate-400 rounded-full mt-1.5 flex-shrink-0" />
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-semibold text-slate-800">{h.status?.replace(/_/g, ' ')}</span>
+                                      <span className="text-slate-400">·</span>
+                                      <span className="text-slate-500">{h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>
+                                    </div>
+                                    {h.notes && <p className="text-slate-600 mt-0.5">{h.notes}</p>}
+                                    {h.updated_by && <p className="text-slate-400 mt-0.5">by {h.updated_by}</p>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Referrals Tab */}
+        {activeTab === 'referrals' && (
+          <div data-testid="referrals-section">
+            {loadingReferrals ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="w-10 h-10 text-slate-400 animate-spin" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Received */}
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5" /> Received Referrals ({referrals.received.length})
+                  </h2>
+                  <div className="space-y-3">
+                    {referrals.received.length === 0 ? (
+                      <p className="text-sm text-slate-400 bg-white p-6 rounded-xl border border-slate-200 text-center">No received referrals</p>
+                    ) : referrals.received.map(r => (
+                      <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-4" data-testid={`received-referral-${r.id}`}>
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <p className="font-semibold text-slate-900 text-sm">{r.case_type} Case</p>
+                            <p className="text-xs text-slate-500">From: {r.referred_by_name}</p>
+                          </div>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${r.status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {r.status}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 mb-2">{r.case_description}</p>
+                        {r.notes && <p className="text-xs text-slate-500 italic mb-2">Notes: {r.notes}</p>}
+                        {r.status === 'pending' && (
+                          <button
+                            onClick={() => handleAcceptReferral(r.id)}
+                            className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium py-1.5 px-3 rounded-lg"
+                            data-testid={`accept-referral-${r.id}`}
+                          >
+                            Accept Referral
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Sent */}
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <Send className="w-5 h-5" /> Sent Referrals ({referrals.sent.length})
+                  </h2>
+                  <div className="space-y-3">
+                    {referrals.sent.length === 0 ? (
+                      <p className="text-sm text-slate-400 bg-white p-6 rounded-xl border border-slate-200 text-center">No sent referrals</p>
+                    ) : referrals.sent.map(r => (
+                      <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-4" data-testid={`sent-referral-${r.id}`}>
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <p className="font-semibold text-slate-900 text-sm">{r.case_type} Case</p>
+                            <p className="text-xs text-slate-500">To: {r.referred_to_name}</p>
+                          </div>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${r.status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {r.status}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600">{r.case_description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default LawyerDashboard;

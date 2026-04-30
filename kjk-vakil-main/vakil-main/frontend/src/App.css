@@ -1,0 +1,99 @@
+.app-container {
+  min-height: 100vh;
+  background-color: #FFFFFF;
+  color: #111111;
+}
+
+.border-grid {
+  border: 1px solid #E5E5E5;
+}
+
+.border-grid-bottom {
+  border-bottom: 1px solid #E5E5E5;
+}
+
+.btn-primary {
+  background-color: #111111;
+  color: white;
+  border-radius: 0;
+  padding: 0.75rem 1.5rem;
+  font-weight: 500;
+  transition: background-color 200ms ease-out;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background-color: #333333;
+}
+
+.btn-secondary {
+  background-color: transparent;
+  border: 1px solid #E5E5E5;
+  color: #111111;
+  border-radius: 0;
+  padding: 0.75rem 1.5rem;
+  transition: border-color 200ms ease-out;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  border-color: #111111;
+}
+
+.btn-accent {
+  background-color: #002FA7;
+  color: white;
+  border-radius: 0;
+  padding: 0.75rem 1.5rem;
+  font-weight: 500;
+  transition: background-color 200ms ease-out;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-accent:hover {
+  background-color: #001D66;
+}
+
+.input-underline {
+  background-color: transparent;
+  border: none;
+  border-bottom: 1px solid #E5E5E5;
+  border-radius: 0;
+  padding: 0.75rem 0;
+  transition: border-color 200ms ease-out;
+  outline: none;
+  width: 100%;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.input-underline:hover {
+  border-bottom-color: #111111;
+}
+
+.input-underline:focus {
+  border-bottom-color: #111111;
+}
+
+.card-flat {
+  background-color: #FFFFFF;
+  border: 1px solid #E5E5E5;
+  border-radius: 4px;
+  padding: 2rem;
+}
+
+.progress-line {
+  height: 1px;
+  background-color: #E5E5E5;
+  position: relative;
+}
+
+.progress-fill {
+  height: 1px;
+  background-color: #111111;
+  position: absolute;
+  left: 0;
+  top: 0;
+  transition: width 300ms ease-out;
+}
