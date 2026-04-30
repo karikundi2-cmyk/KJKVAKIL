@@ -19,3 +19,5 @@ const lawyerSchema = new mongoose.Schema(
 );
 
 export default mongoose.models.Lawyer || mongoose.model("Lawyer", lawyerSchema);
+const testVariable = 10;
+// `@coderabbitai` how can I improve this schema?
