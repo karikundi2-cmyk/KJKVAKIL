@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   User, LogOut, FileText, Scale, BookOpen, Video, Users,
   Calendar, Building2, ClipboardList, ScrollText, PenLine,
-  Menu, X, ChevronRight
+  Menu, X, ChevronRight, Search
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 
@@ -36,7 +36,9 @@ const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const menuRef = useRef(null);
+  const searchRef = useRef(null);
 
   const handleLogout = async () => {
     setMenuOpen(false);
@@ -46,22 +48,34 @@ const Navbar = () => {
 
   useEffect(() => {
     setMenuOpen(false);
+    setSearch('');
   }, [location.pathname]);
 
   useEffect(() => {
     const handleClick = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuOpen(false);
+        setSearch('');
       }
     };
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  const links =
+  useEffect(() => {
+    if (menuOpen && searchRef.current) {
+      setTimeout(() => searchRef.current?.focus(), 80);
+    }
+  }, [menuOpen]);
+
+  const allLinks =
     user?.role === 'client' ? clientLinks :
     user?.role === 'lawyer' ? lawyerLinks :
     user?.role === 'legal_writer' ? writerLinks : [];
+
+  const filtered = search.trim()
+    ? allLinks.filter(l => l.label.toLowerCase().includes(search.toLowerCase()))
+    : allLinks;
 
   return (
     <nav className="sticky top-0 z-50 bg-white border-b border-[#E5E5E5]" data-testid="navbar">
@@ -96,20 +110,19 @@ const Navbar = () => {
                 {/* Hamburger */}
                 <div className="relative" ref={menuRef}>
                   <button
-                    onClick={() => setMenuOpen(!menuOpen)}
-                    className="flex flex-col items-center justify-center w-9 h-9 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+                    onClick={() => { setMenuOpen(!menuOpen); setSearch(''); }}
+                    className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
                     data-testid="navbar-hamburger"
                     aria-label="Open menu"
                   >
-                    {menuOpen ? (
-                      <X className="w-5 h-5 text-slate-700" />
-                    ) : (
-                      <Menu className="w-5 h-5 text-slate-700" />
-                    )}
+                    {menuOpen
+                      ? <X className="w-5 h-5 text-slate-700" />
+                      : <Menu className="w-5 h-5 text-slate-700" />}
                   </button>
 
                   {menuOpen && (
-                    <div className="absolute right-0 top-12 w-64 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+                    <div className="absolute right-0 top-12 w-72 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+
                       {/* User info header */}
                       <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
                         <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-0.5">Signed in as</p>
@@ -117,30 +130,63 @@ const Navbar = () => {
                         <p className="text-xs text-slate-400 capitalize">{user.role?.replace('_', ' ')}</p>
                       </div>
 
+                      {/* Search bar */}
+                      <div className="px-3 py-2.5 border-b border-slate-100">
+                        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus-within:border-slate-400 focus-within:bg-white transition-colors">
+                          <Search className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                          <input
+                            ref={searchRef}
+                            type="text"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Search pages..."
+                            className="flex-1 bg-transparent text-sm text-slate-700 placeholder-slate-400 outline-none"
+                            data-testid="navbar-search"
+                          />
+                          {search && (
+                            <button onClick={() => setSearch('')} className="text-slate-400 hover:text-slate-600">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
                       {/* Nav links */}
-                      <div className="py-2">
-                        {links.map(({ to, icon: Icon, label }) => {
-                          const isActive = location.pathname === to;
-                          return (
-                            <Link
-                              key={to}
-                              to={to}
-                              className={`flex items-center gap-3 px-4 py-2.5 text-sm transition-colors group ${
-                                isActive
-                                  ? 'bg-slate-900 text-white'
-                                  : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
-                              }`}
-                            >
-                              <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                                isActive ? 'bg-white/20' : 'bg-slate-100 group-hover:bg-slate-200'
-                              }`}>
-                                <Icon className="w-3.5 h-3.5" />
-                              </span>
-                              <span className="flex-1">{label}</span>
-                              {!isActive && <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-400" />}
-                            </Link>
-                          );
-                        })}
+                      <div className="py-2 max-h-72 overflow-y-auto">
+                        {filtered.length === 0 ? (
+                          <div className="px-4 py-6 text-center">
+                            <p className="text-sm text-slate-400">No pages match <span className="font-medium text-slate-600">"{search}"</span></p>
+                          </div>
+                        ) : (
+                          filtered.map(({ to, icon: Icon, label }) => {
+                            const isActive = location.pathname === to;
+                            const query = search.trim().toLowerCase();
+                            const idx = label.toLowerCase().indexOf(query);
+                            const highlighted = query && idx !== -1
+                              ? <>{label.slice(0, idx)}<mark className="bg-amber-200 text-slate-900 rounded px-0.5">{label.slice(idx, idx + query.length)}</mark>{label.slice(idx + query.length)}</>
+                              : label;
+
+                            return (
+                              <Link
+                                key={to}
+                                to={to}
+                                className={`flex items-center gap-3 px-4 py-2.5 text-sm transition-colors group ${
+                                  isActive
+                                    ? 'bg-slate-900 text-white'
+                                    : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                                }`}
+                              >
+                                <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                  isActive ? 'bg-white/20' : 'bg-slate-100 group-hover:bg-slate-200'
+                                }`}>
+                                  <Icon className="w-3.5 h-3.5" />
+                                </span>
+                                <span className="flex-1">{highlighted}</span>
+                                {!isActive && <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-400" />}
+                              </Link>
+                            );
+                          })
+                        )}
                       </div>
 
                       {/* Logout */}
