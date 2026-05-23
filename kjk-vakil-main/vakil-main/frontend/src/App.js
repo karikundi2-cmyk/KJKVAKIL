@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Toaster } from 'react-hot-toast';
 import ChatWidget from './components/ChatWidget';
+import StatusWatcher from './components/StatusWatcher';
 
 import Home from './pages/Home';
 import Services from './pages/Services';
@@ -58,7 +59,13 @@ function AppContent() {
         <Route path="/writer/dashboard" element={<ProtectedRoute allowedRole="legal_writer"><ContentWriterDashboard /></ProtectedRoute>} />
       </Routes>
       <ChatWidget />
-      <Toaster position="top-right" />
+      <StatusWatcher />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: { background: 'transparent', boxShadow: 'none', padding: 0 },
+        }}
+      />
     </>
   );
 }
