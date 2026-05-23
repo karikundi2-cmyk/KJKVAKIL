@@ -5,7 +5,7 @@ import Navbar from '../components/Navbar';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Filter, MapPin, Calendar, DollarSign, AlertCircle, CheckCircle2, Loader2, Send, Users, ArrowRight, ChevronDown, ChevronUp, Shield, Briefcase, FileText, Clock, User, MessageCircle } from 'lucide-react';
+import { Filter, MapPin, Calendar, DollarSign, AlertCircle, CheckCircle2, Loader2, Send, Users, ArrowRight, ChevronDown, ChevronUp, Shield, Briefcase, FileText, Clock, User, MessageCircle, TrendingUp, Star, Zap, Award } from 'lucide-react';
 
 import API_URL from '../lib/api';
 import CaseChat from '../components/CaseChat';
@@ -42,6 +42,10 @@ const LawyerDashboard = () => {
   const [referLawyerId, setReferLawyerId] = useState('');
   const [referNotes, setReferNotes] = useState('');
 
+  // Performance
+  const [perfData, setPerfData] = useState(null);
+  const [loadingPerf, setLoadingPerf] = useState(false);
+
   useEffect(() => {
     fetchCases();
     fetchLawyers();
@@ -51,6 +55,7 @@ const LawyerDashboard = () => {
   useEffect(() => {
     if (activeTab === 'referrals') fetchReferrals();
     if (activeTab === 'mycases') fetchMyCases();
+    if (activeTab === 'performance') fetchPerformance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -119,6 +124,18 @@ const LawyerDashboard = () => {
       toast.error('Failed to load your cases');
     } finally {
       setLoadingMyCases(false);
+    }
+  };
+
+  const fetchPerformance = async () => {
+    setLoadingPerf(true);
+    try {
+      const { data } = await axios.get(`${API_URL}/api/lawyer/performance`);
+      setPerfData(data);
+    } catch (err) {
+      toast.error('Failed to load performance data');
+    } finally {
+      setLoadingPerf(false);
     }
   };
 
@@ -191,6 +208,7 @@ const LawyerDashboard = () => {
             { id: 'cases', label: 'Available Cases', icon: FileText },
             { id: 'mycases', label: 'My Active Cases', icon: Briefcase },
             { id: 'referrals', label: 'Referrals', icon: Send },
+            { id: 'performance', label: 'Performance', icon: TrendingUp },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -637,6 +655,231 @@ const LawyerDashboard = () => {
                     </motion.div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Performance Tab */}
+        {activeTab === 'performance' && (
+          <div data-testid="performance-section">
+            {loadingPerf ? (
+              <div className="flex items-center justify-center py-24">
+                <Loader2 className="w-12 h-12 text-slate-400 animate-spin" />
+              </div>
+            ) : !perfData ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+                <TrendingUp className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-500">No performance data available yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* KPI Cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    {
+                      label: 'Total Cases',
+                      value: perfData.total_cases,
+                      sub: `${perfData.this_month_cases} this month`,
+                      icon: Briefcase,
+                      color: 'from-blue-500 to-indigo-600',
+                      light: 'bg-blue-50 text-blue-700',
+                    },
+                    {
+                      label: 'Avg Rating',
+                      value: perfData.avg_rating != null ? `${perfData.avg_rating} ★` : '—',
+                      sub: `${perfData.total_reviews} review${perfData.total_reviews !== 1 ? 's' : ''}`,
+                      icon: Star,
+                      color: 'from-amber-400 to-orange-500',
+                      light: 'bg-amber-50 text-amber-700',
+                    },
+                    {
+                      label: 'Avg Response',
+                      value: perfData.avg_response_hrs != null
+                        ? perfData.avg_response_hrs < 1
+                          ? `${Math.round(perfData.avg_response_hrs * 60)} min`
+                          : `${perfData.avg_response_hrs} hrs`
+                        : '—',
+                      sub: 'time to first action',
+                      icon: Zap,
+                      color: 'from-green-500 to-emerald-600',
+                      light: 'bg-green-50 text-green-700',
+                    },
+                    {
+                      label: 'Est. Earnings',
+                      value: perfData.est_earnings > 0
+                        ? `₹${perfData.est_earnings.toLocaleString('en-IN')}`
+                        : '—',
+                      sub: `${perfData.completed_cases} completed case${perfData.completed_cases !== 1 ? 's' : ''}`,
+                      icon: Award,
+                      color: 'from-violet-500 to-purple-600',
+                      light: 'bg-violet-50 text-violet-700',
+                    },
+                  ].map(({ label, value, sub, icon: Icon, color, light }) => (
+                    <motion.div
+                      key={label}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col gap-3"
+                    >
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center`}>
+                        <Icon className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-slate-900">{value}</p>
+                        <p className="text-xs font-medium text-slate-500 mt-0.5">{label}</p>
+                        <p className={`text-[11px] font-medium mt-1 px-2 py-0.5 rounded-full inline-block ${light}`}>{sub}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Weekly Activity Bar Chart */}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-indigo-500" /> Weekly Case Activity
+                    </h3>
+                    {(() => {
+                      const weekly = perfData.weekly_activity || [];
+                      const maxCount = Math.max(...weekly.map(w => w.count), 1);
+                      return (
+                        <div className="flex items-end gap-3 h-32">
+                          {weekly.map((w, i) => (
+                            <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                              <span className="text-[11px] font-bold text-slate-700">{w.count}</span>
+                              <div className="w-full relative rounded-t-lg overflow-hidden bg-slate-100" style={{ height: '80px' }}>
+                                <motion.div
+                                  initial={{ height: 0 }}
+                                  animate={{ height: `${(w.count / maxCount) * 100}%` }}
+                                  transition={{ duration: 0.6, delay: i * 0.1 }}
+                                  className="absolute bottom-0 w-full bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-lg"
+                                />
+                              </div>
+                              <span className="text-[10px] text-slate-500 font-medium">{w.label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Status Breakdown */}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                      <Briefcase className="w-4 h-4 text-violet-500" /> Cases by Status
+                    </h3>
+                    {(() => {
+                      const entries = Object.entries(perfData.status_breakdown || {}).sort((a, b) => b[1] - a[1]);
+                      const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
+                      const palette = ['bg-indigo-500', 'bg-amber-500', 'bg-green-500', 'bg-violet-500', 'bg-rose-500', 'bg-slate-400'];
+                      return entries.length === 0 ? (
+                        <p className="text-sm text-slate-400 text-center py-8">No cases yet</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {entries.map(([status, count], i) => (
+                            <div key={status}>
+                              <div className="flex items-center justify-between text-xs mb-1">
+                                <span className="font-medium text-slate-700 capitalize">{status.replace(/_/g, ' ')}</span>
+                                <span className="text-slate-500 font-semibold">{count}</span>
+                              </div>
+                              <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                                <motion.div
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${(count / total) * 100}%` }}
+                                  transition={{ duration: 0.7, delay: i * 0.08 }}
+                                  className={`h-full rounded-full ${palette[i % palette.length]}`}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Case Type Distribution */}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-green-500" /> Case Types
+                    </h3>
+                    {(() => {
+                      const entries = Object.entries(perfData.case_type_breakdown || {}).sort((a, b) => b[1] - a[1]);
+                      const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
+                      const palette = ['bg-emerald-500', 'bg-sky-500', 'bg-rose-500', 'bg-orange-500', 'bg-purple-500', 'bg-teal-500'];
+                      return entries.length === 0 ? (
+                        <p className="text-sm text-slate-400 text-center py-8">No data</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {entries.map(([ct, count], i) => (
+                            <div key={ct}>
+                              <div className="flex items-center justify-between text-xs mb-1">
+                                <span className="font-medium text-slate-700">{ct}</span>
+                                <span className="text-slate-500 font-semibold">{Math.round((count / total) * 100)}%</span>
+                              </div>
+                              <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                                <motion.div
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${(count / total) * 100}%` }}
+                                  transition={{ duration: 0.7, delay: i * 0.08 }}
+                                  className={`h-full rounded-full ${palette[i % palette.length]}`}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Recent Reviews */}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                      <Star className="w-4 h-4 text-amber-500" /> Recent Client Reviews
+                    </h3>
+                    {perfData.recent_reviews?.length === 0 ? (
+                      <p className="text-sm text-slate-400 text-center py-8">No reviews yet</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {(perfData.recent_reviews || []).map((r, i) => (
+                          <motion.div
+                            key={i}
+                            initial={{ opacity: 0, x: -8 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.08 }}
+                            className="p-3 rounded-xl bg-slate-50 border border-slate-100"
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-semibold text-slate-800">{r.client_name}</span>
+                              <div className="flex gap-0.5">
+                                {[1, 2, 3, 4, 5].map(star => (
+                                  <Star
+                                    key={star}
+                                    className={`w-3 h-3 ${star <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                            <p className="text-[11px] text-slate-600 line-clamp-2">{r.comment}</p>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
+                            </p>
+                          </motion.div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={fetchPerformance}
+                    className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium flex items-center gap-2"
+                  >
+                    <Loader2 className={`w-3.5 h-3.5 ${loadingPerf ? 'animate-spin' : 'hidden'}`} />
+                    Refresh Stats
+                  </button>
+                </div>
               </div>
             )}
           </div>

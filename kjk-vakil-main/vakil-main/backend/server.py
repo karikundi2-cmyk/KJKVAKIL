@@ -1753,6 +1753,116 @@ async def lawyer_dashboard(current_user: dict = Depends(get_current_user)):
     return items
 
 
+@api_router.get("/lawyer/performance")
+async def lawyer_performance(current_user: dict = Depends(get_current_user)):
+    """Full performance stats for the authenticated lawyer."""
+    if current_user["role"] != "lawyer":
+        raise HTTPException(status_code=403, detail="Lawyers only")
+
+    uid = current_user["id"]
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    week_ago = now - timedelta(days=7)
+
+    cases = await db.cases.find({"lawyer_id": uid}).to_list(1000)
+
+    # --- Case counts ---
+    total_cases = len(cases)
+    this_month = 0
+    for c in cases:
+        ca = c.get("created_at")
+        if ca:
+            ca_tz = ca if getattr(ca, "tzinfo", None) else ca.replace(tzinfo=timezone.utc) if hasattr(ca, "replace") else None
+            if ca_tz and ca_tz >= month_start:
+                this_month += 1
+
+    # --- Status breakdown ---
+    status_counts = {}
+    for c in cases:
+        s = _case_dashboard_status(c)
+        status_counts[s] = status_counts.get(s, 0) + 1
+
+    # --- Case type distribution ---
+    type_counts = {}
+    for c in cases:
+        ct = c.get("case_type", "Other") or "Other"
+        type_counts[ct] = type_counts.get(ct, 0) + 1
+
+    # --- Average response time (created_at → first status_history entry) ---
+    response_times_hrs = []
+    for c in cases:
+        history = c.get("status_history", [])
+        created = c.get("created_at")
+        if created and history:
+            try:
+                created_tz = created if getattr(created, "tzinfo", None) else created.replace(tzinfo=timezone.utc)
+                first_ts_raw = history[0].get("timestamp")
+                if isinstance(first_ts_raw, str):
+                    first_ts = datetime.fromisoformat(first_ts_raw.replace("Z", "+00:00"))
+                elif first_ts_raw and hasattr(first_ts_raw, "tzinfo"):
+                    first_ts = first_ts_raw if first_ts_raw.tzinfo else first_ts_raw.replace(tzinfo=timezone.utc)
+                else:
+                    continue
+                diff_hrs = (first_ts - created_tz).total_seconds() / 3600
+                if 0 <= diff_hrs < 8760:
+                    response_times_hrs.append(diff_hrs)
+            except Exception:
+                continue
+    avg_response_hrs = round(sum(response_times_hrs) / len(response_times_hrs), 1) if response_times_hrs else None
+
+    # --- Estimated earnings (parse budget strings like "50,000 - 1,00,000") ---
+    def parse_budget_midpoint(b):
+        if not b:
+            return 0
+        nums = [int(x.replace(",", "").strip()) for x in b.replace("₹", "").split("-") if x.replace(",", "").strip().isdigit()]
+        return sum(nums) / len(nums) if nums else 0
+
+    completed_cases = [c for c in cases if _case_dashboard_status(c) in ("completed", "closed")]
+    est_earnings = int(sum(parse_budget_midpoint(c.get("budget")) for c in completed_cases))
+
+    # --- Weekly activity: cases accepted per week for last 4 weeks ---
+    weekly = []
+    for i in range(3, -1, -1):
+        wk_start = now - timedelta(days=(i + 1) * 7)
+        wk_end = now - timedelta(days=i * 7)
+        count = 0
+        for c in cases:
+            ca = c.get("created_at")
+            if ca:
+                ca_tz = ca if getattr(ca, "tzinfo", None) else ca.replace(tzinfo=timezone.utc) if hasattr(ca, "replace") else None
+                if ca_tz and wk_start <= ca_tz < wk_end:
+                    count += 1
+        label = f"Wk {4 - i}"
+        weekly.append({"label": label, "count": count})
+
+    # --- Reviews ---
+    reviews = await db.reviews.find({"lawyer_id": uid}).sort("created_at", -1).to_list(100)
+    avg_rating = round(sum(r["rating"] for r in reviews) / len(reviews), 1) if reviews else None
+    recent_reviews = [
+        {
+            "client_name": r.get("client_name", "Anonymous"),
+            "rating": r["rating"],
+            "comment": r.get("comment", ""),
+            "created_at": r["created_at"].isoformat() if hasattr(r.get("created_at"), "isoformat") else "",
+        }
+        for r in reviews[:5]
+    ]
+
+    return {
+        "total_cases": total_cases,
+        "this_month_cases": this_month,
+        "completed_cases": len(completed_cases),
+        "status_breakdown": status_counts,
+        "case_type_breakdown": type_counts,
+        "avg_response_hrs": avg_response_hrs,
+        "est_earnings": est_earnings,
+        "weekly_activity": weekly,
+        "avg_rating": avg_rating,
+        "total_reviews": len(reviews),
+        "recent_reviews": recent_reviews,
+    }
+
+
 @api_router.post("/lawyer/case/{case_id}/accept")
 async def lawyer_case_accept(case_id: str, current_user: dict = Depends(get_current_user)):
     """Claim an open case (same behavior as PUT /cases/{id}/accept)."""
