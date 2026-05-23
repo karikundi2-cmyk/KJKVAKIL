@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Bell, Check, CheckCheck, Info, Phone, Users, CreditCard, MessageCircle } from 'lucide-react';
+import { Bell, Check, CheckCheck, Info, Phone, Users, CreditCard, MessageCircle, BarChart2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 import API_URL from '../lib/api';
@@ -11,6 +11,7 @@ const iconMap = {
   referral: Users,
   payment: CreditCard,
   case_message: MessageCircle,
+  digest: BarChart2,
 };
 
 const NotificationBell = () => {

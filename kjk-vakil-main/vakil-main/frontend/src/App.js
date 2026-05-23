@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Toaster } from 'react-hot-toast';
 import ChatWidget from './components/ChatWidget';
 import StatusWatcher from './components/StatusWatcher';
+import DigestWatcher from './components/DigestWatcher';
 
 import Home from './pages/Home';
 import Services from './pages/Services';
@@ -60,6 +61,7 @@ function AppContent() {
       </Routes>
       <ChatWidget />
       <StatusWatcher />
+      <DigestWatcher />
       <Toaster
         position="top-right"
         toastOptions={{

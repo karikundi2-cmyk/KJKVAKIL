@@ -3008,6 +3008,131 @@ async def create_notification(user_id: str, title: str, message: str, notif_type
     })
 
 
+# ============ ACTIVITY DIGEST ============
+
+@api_router.get("/activity-digest")
+async def get_activity_digest(current_user: dict = Depends(get_current_user)):
+    """
+    Generate a 7-day activity digest for the current user.
+    Creates a digest notification if one hasn't been created today.
+    Returns the structured digest data plus the notification id.
+    """
+    uid = current_user["id"]
+    role = current_user.get("role", "client")
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=7)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # --- Gather cases ---
+    if role == "lawyer":
+        cases = await db.cases.find({"lawyer_id": uid}).to_list(500)
+    else:
+        cases = await db.cases.find({"user_id": uid}).to_list(500)
+
+    case_ids = [str(c["_id"]) for c in cases]
+
+    # --- Status changes in past 7 days ---
+    status_changes = []
+    for c in cases:
+        for entry in c.get("status_history", []):
+            try:
+                ts_raw = entry.get("timestamp")
+                if isinstance(ts_raw, str):
+                    ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                elif hasattr(ts_raw, "tzinfo"):
+                    ts = ts_raw if ts_raw.tzinfo else ts_raw.replace(tzinfo=timezone.utc)
+                else:
+                    continue
+                if ts >= week_ago:
+                    status_changes.append({
+                        "case_type": c.get("case_type", "Case"),
+                        "case_id": str(c["_id"]),
+                        "status": entry.get("status"),
+                        "notes": entry.get("notes", ""),
+                        "timestamp": ts.isoformat(),
+                    })
+            except Exception:
+                continue
+    status_changes.sort(key=lambda x: x["timestamp"], reverse=True)
+
+    # --- Messages in past 7 days ---
+    messages_sent = 0
+    messages_received = 0
+    if case_ids:
+        sent_count = await db.case_messages.count_documents({
+            "case_id": {"$in": case_ids},
+            "sender_id": uid,
+            "created_at": {"$gte": week_ago},
+        })
+        received_count = await db.case_messages.count_documents({
+            "case_id": {"$in": case_ids},
+            "sender_id": {"$ne": uid},
+            "created_at": {"$gte": week_ago},
+        })
+        messages_sent = sent_count
+        messages_received = received_count
+
+    # --- Cases submitted this week (client only) ---
+    new_cases_this_week = 0
+    if role == "client":
+        for c in cases:
+            ca = c.get("created_at")
+            if ca:
+                if hasattr(ca, "tzinfo"):
+                    ca_tz = ca if ca.tzinfo else ca.replace(tzinfo=timezone.utc)
+                else:
+                    try:
+                        ca_tz = datetime.fromisoformat(str(ca))
+                    except Exception:
+                        continue
+                if ca_tz >= week_ago:
+                    new_cases_this_week += 1
+
+    # --- Build headline summary ---
+    highlights = []
+    if status_changes:
+        highlights.append(f"{len(status_changes)} status update{'s' if len(status_changes) > 1 else ''}")
+    if messages_received:
+        highlights.append(f"{messages_received} message{'s' if messages_received > 1 else ''} received")
+    if new_cases_this_week and role == "client":
+        highlights.append(f"{new_cases_this_week} new case{'s' if new_cases_this_week > 1 else ''} filed")
+
+    summary = ", ".join(highlights) if highlights else "No new activity this week"
+
+    digest_data = {
+        "period": "Last 7 days",
+        "generated_at": now.isoformat(),
+        "total_cases": len(cases),
+        "status_changes": status_changes[:5],   # top 5
+        "messages_sent": messages_sent,
+        "messages_received": messages_received,
+        "new_cases_this_week": new_cases_this_week,
+        "summary": summary,
+    }
+
+    # --- Create notification if not already done today ---
+    existing_today = await db.notifications.find_one({
+        "user_id": uid,
+        "type": "digest",
+        "created_at": {"$gte": today_start},
+    })
+
+    notif_id = None
+    if not existing_today and highlights:
+        result = await db.notifications.insert_one({
+            "user_id": uid,
+            "type": "digest",
+            "title": "📊 Your Weekly Activity Digest",
+            "message": summary,
+            "digest_data": digest_data,
+            "read": False,
+            "created_at": now,
+        })
+        notif_id = str(result.inserted_id)
+
+    return {**digest_data, "notification_id": notif_id, "already_sent_today": existing_today is not None}
+
+
 # ============ REFERRAL SYSTEM ============
 
 @api_router.post("/referrals")
