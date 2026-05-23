@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Filter, MapPin, Calendar, DollarSign, AlertCircle, CheckCircle2, Loader2, Send, Users, ArrowRight, ChevronDown, ChevronUp, Shield, Briefcase, FileText, Clock, User, MessageCircle, TrendingUp, Star, Zap, Award } from 'lucide-react';
+import { Filter, MapPin, Calendar, DollarSign, AlertCircle, CheckCircle2, Loader2, Send, Users, ArrowRight, ChevronDown, ChevronUp, Shield, Briefcase, FileText, Clock, User, MessageCircle, TrendingUp, Star, Zap, Award, Upload, Download, Trash2, Paperclip, File as FileIcon, Image as ImageIcon } from 'lucide-react';
 
 import API_URL from '../lib/api';
 import CaseChat from '../components/CaseChat';
@@ -45,6 +45,67 @@ const LawyerDashboard = () => {
   // Performance
   const [perfData, setPerfData] = useState(null);
   const [loadingPerf, setLoadingPerf] = useState(false);
+
+  // Documents per case
+  const [docsByCaseId, setDocsByCaseId] = useState({});
+  const [loadingDocsByCaseId, setLoadingDocsByCaseId] = useState({});
+  const [uploadingByCaseId, setUploadingByCaseId] = useState({});
+  const [openDocsCase, setOpenDocsCase] = useState(null);
+  const [dragOverCase, setDragOverCase] = useState(null);
+  const docInputRefs = useRef({});
+
+  const fetchDocsForCase = useCallback(async (caseId) => {
+    setLoadingDocsByCaseId(prev => ({ ...prev, [caseId]: true }));
+    try {
+      const { data } = await axios.get(`${API_URL}/api/cases/${caseId}/documents`);
+      setDocsByCaseId(prev => ({ ...prev, [caseId]: data }));
+    } catch {} finally {
+      setLoadingDocsByCaseId(prev => ({ ...prev, [caseId]: false }));
+    }
+  }, []);
+
+  const uploadDocForCase = async (caseId, file) => {
+    if (!file) return;
+    const allowed = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.txt', '.xlsx', '.xls'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) { toast.error(`File type not allowed: ${ext}`); return; }
+    if (file.size > 10 * 1024 * 1024) { toast.error('File too large (max 10 MB)'); return; }
+    setUploadingByCaseId(prev => ({ ...prev, [caseId]: true }));
+    const form = new FormData(); form.append('file', file);
+    try {
+      const { data } = await axios.post(`${API_URL}/api/cases/${caseId}/documents`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setDocsByCaseId(prev => ({ ...prev, [caseId]: [...(prev[caseId] || []), data] }));
+      toast.success('Document uploaded');
+    } catch (err) { toast.error(err.response?.data?.detail || 'Upload failed'); }
+    finally { setUploadingByCaseId(prev => ({ ...prev, [caseId]: false })); }
+  };
+
+  const deleteDocForCase = async (caseId, docId) => {
+    if (!window.confirm('Delete this document?')) return;
+    try {
+      await axios.delete(`${API_URL}/api/documents/${docId}`);
+      setDocsByCaseId(prev => ({ ...prev, [caseId]: (prev[caseId] || []).filter(d => d.id !== docId) }));
+      toast.success('Document deleted');
+    } catch (err) { toast.error(err.response?.data?.detail || 'Delete failed'); }
+  };
+
+  const downloadDoc = async (docId, name) => {
+    try {
+      const res = await axios.get(`${API_URL}/api/documents/${docId}/download`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+      window.URL.revokeObjectURL(url);
+    } catch { toast.error('Download failed'); }
+  };
+
+  const fmtDocSize = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   useEffect(() => {
     fetchCases();
@@ -600,6 +661,123 @@ const LawyerDashboard = () => {
                             />
                           </div>
                         )}
+
+                        {/* Documents section */}
+                        <div className="mb-3">
+                          <button
+                            onClick={() => {
+                              const next = openDocsCase === c.id ? null : c.id;
+                              setOpenDocsCase(next);
+                              if (next && !docsByCaseId[c.id]) fetchDocsForCase(c.id);
+                            }}
+                            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 border border-slate-200 hover:border-indigo-200 transition-colors"
+                          >
+                            <Paperclip className="w-3.5 h-3.5" />
+                            Documents
+                            {(docsByCaseId[c.id] || []).length > 0 && (
+                              <span className="ml-1 bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                                {docsByCaseId[c.id].length}
+                              </span>
+                            )}
+                            {openDocsCase === c.id ? <ChevronUp className="w-3 h-3 ml-1" /> : <ChevronDown className="w-3 h-3 ml-1" />}
+                          </button>
+
+                          <AnimatePresence initial={false}>
+                            {openDocsCase === c.id && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden mt-2"
+                              >
+                                {/* Drop zone */}
+                                <div
+                                  onDragOver={(e) => { e.preventDefault(); setDragOverCase(c.id); }}
+                                  onDragLeave={() => setDragOverCase(null)}
+                                  onDrop={(e) => {
+                                    e.preventDefault(); setDragOverCase(null);
+                                    const f = e.dataTransfer.files[0];
+                                    if (f) uploadDocForCase(c.id, f);
+                                  }}
+                                  onClick={() => docInputRefs.current[c.id]?.click()}
+                                  className={`border-2 border-dashed rounded-xl px-4 py-3 flex items-center justify-center gap-2 cursor-pointer transition-colors mb-2 ${
+                                    dragOverCase === c.id ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <input
+                                    ref={el => docInputRefs.current[c.id] = el}
+                                    type="file"
+                                    className="hidden"
+                                    accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,.xlsx,.xls"
+                                    onChange={e => { if (e.target.files[0]) uploadDocForCase(c.id, e.target.files[0]); e.target.value = ''; }}
+                                  />
+                                  {uploadingByCaseId[c.id] ? (
+                                    <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+                                  ) : (
+                                    <Upload className="w-4 h-4 text-slate-400" />
+                                  )}
+                                  <span className="text-xs text-slate-500">
+                                    {uploadingByCaseId[c.id] ? 'Uploading…' : 'Drop or click to upload'}
+                                  </span>
+                                </div>
+
+                                {/* File list */}
+                                {loadingDocsByCaseId[c.id] ? (
+                                  <div className="flex justify-center py-2">
+                                    <Loader2 className="w-4 h-4 text-slate-300 animate-spin" />
+                                  </div>
+                                ) : (docsByCaseId[c.id] || []).length === 0 ? (
+                                  <p className="text-xs text-slate-400 text-center py-2">No documents yet</p>
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    {(docsByCaseId[c.id] || []).map(doc => {
+                                      const isOwner = doc.uploader_id === user?.id;
+                                      return (
+                                        <div key={doc.id} className="flex items-center gap-2 bg-white border border-slate-100 rounded-lg px-2.5 py-2 hover:border-indigo-200 transition-colors">
+                                          <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+                                            {['.png','.jpg','.jpeg'].includes(doc.extension)
+                                              ? <ImageIcon className="w-3.5 h-3.5 text-indigo-500" />
+                                              : <FileIcon className="w-3.5 h-3.5 text-indigo-500" />
+                                            }
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-semibold text-slate-800 truncate">{doc.original_name}</p>
+                                            <p className="text-[10px] text-slate-400">
+                                              {fmtDocSize(doc.size_bytes)} ·{' '}
+                                              <span className={`px-1 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                                doc.uploader_role === 'lawyer' ? 'bg-violet-100 text-violet-600' : 'bg-blue-100 text-blue-600'
+                                              }`}>{doc.uploader_role}</span>
+                                              {' '}· {doc.created_at ? new Date(doc.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''}
+                                            </p>
+                                          </div>
+                                          <div className="flex gap-1 flex-shrink-0">
+                                            <button
+                                              onClick={() => downloadDoc(doc.id, doc.original_name)}
+                                              className="w-6 h-6 rounded-md bg-slate-50 hover:bg-indigo-50 flex items-center justify-center transition-colors"
+                                              title="Download"
+                                            >
+                                              <Download className="w-3 h-3 text-slate-500 hover:text-indigo-600" />
+                                            </button>
+                                            {isOwner && (
+                                              <button
+                                                onClick={() => deleteDocForCase(c.id, doc.id)}
+                                                className="w-6 h-6 rounded-md bg-slate-50 hover:bg-red-50 flex items-center justify-center transition-colors"
+                                                title="Delete"
+                                              >
+                                                <Trash2 className="w-3 h-3 text-slate-400 hover:text-red-500" />
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
 
                         {/* Status update actions */}
                         <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">

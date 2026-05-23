@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
@@ -2096,6 +2096,145 @@ async def dismiss_survey(body: dict, current_user: dict = Depends(get_current_us
     except Exception:
         pass
     return {"message": "Survey dismissed"}
+
+
+# ============ CASE DOCUMENTS ============
+
+UPLOADS_DIR = ROOT_DIR / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
+
+ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".png", ".jpg", ".jpeg", ".txt", ".xlsx", ".xls"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+async def _assert_case_access(case_id: str, current_user: dict):
+    """Client owns the case OR lawyer is assigned to it."""
+    try:
+        case = await db.cases.find_one({"_id": ObjectId(case_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid case ID")
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    uid = current_user["id"]
+    role = current_user["role"]
+    if role == "client" and case.get("user_id") != uid:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if role == "lawyer" and case.get("lawyer_id") != uid:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return case
+
+
+@api_router.post("/cases/{case_id}/documents")
+async def upload_document(
+    case_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Upload a document to a case (client or assigned lawyer)."""
+    await _assert_case_access(case_id, current_user)
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type '{ext}' not allowed")
+
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
+
+    # Save to disk: uploads/<case_id>/<uuid><ext>
+    case_dir = UPLOADS_DIR / case_id
+    case_dir.mkdir(exist_ok=True)
+    file_id = str(uuid.uuid4())
+    safe_name = file_id + ext
+    dest = case_dir / safe_name
+    dest.write_bytes(contents)
+
+    doc = {
+        "case_id": case_id,
+        "file_id": file_id,
+        "original_name": file.filename,
+        "stored_name": safe_name,
+        "extension": ext,
+        "size_bytes": len(contents),
+        "uploader_id": current_user["id"],
+        "uploader_name": current_user.get("name", "Unknown"),
+        "uploader_role": current_user.get("role", "client"),
+        "created_at": datetime.now(timezone.utc),
+    }
+    result = await db.case_documents.insert_one(doc)
+    return {
+        "id": str(result.inserted_id),
+        "file_id": file_id,
+        "original_name": file.filename,
+        "size_bytes": len(contents),
+        "uploader_name": current_user.get("name"),
+        "uploader_role": current_user.get("role"),
+        "created_at": doc["created_at"].isoformat(),
+    }
+
+
+@api_router.get("/cases/{case_id}/documents")
+async def list_documents(case_id: str, current_user: dict = Depends(get_current_user)):
+    """List all documents for a case."""
+    await _assert_case_access(case_id, current_user)
+    docs = await db.case_documents.find({"case_id": case_id}).sort("created_at", 1).to_list(100)
+    return [
+        {
+            "id": str(d["_id"]),
+            "file_id": d["file_id"],
+            "original_name": d["original_name"],
+            "extension": d.get("extension", ""),
+            "size_bytes": d.get("size_bytes", 0),
+            "uploader_id": d["uploader_id"],
+            "uploader_name": d.get("uploader_name", "Unknown"),
+            "uploader_role": d.get("uploader_role", "client"),
+            "created_at": d["created_at"].isoformat() if hasattr(d.get("created_at"), "isoformat") else "",
+        }
+        for d in docs
+    ]
+
+
+@api_router.get("/documents/{doc_id}/download")
+async def download_document(doc_id: str, current_user: dict = Depends(get_current_user)):
+    """Download a document (auth required — client or assigned lawyer)."""
+    try:
+        doc = await db.case_documents.find_one({"_id": ObjectId(doc_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    await _assert_case_access(doc["case_id"], current_user)
+
+    file_path = UPLOADS_DIR / doc["case_id"] / doc["stored_name"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on server")
+
+    return FileResponse(
+        str(file_path),
+        filename=doc["original_name"],
+        media_type="application/octet-stream",
+    )
+
+
+@api_router.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a document (uploader only)."""
+    try:
+        doc = await db.case_documents.find_one({"_id": ObjectId(doc_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid document ID")
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc["uploader_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own documents")
+
+    file_path = UPLOADS_DIR / doc["case_id"] / doc["stored_name"]
+    if file_path.exists():
+        file_path.unlink()
+
+    await db.case_documents.delete_one({"_id": ObjectId(doc_id)})
+    return {"message": "Document deleted"}
 
 
 # ============ CASE CHAT ENDPOINTS ============

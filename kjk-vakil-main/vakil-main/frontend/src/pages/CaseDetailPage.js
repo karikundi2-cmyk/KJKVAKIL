@@ -10,8 +10,165 @@ import {
   ArrowLeft, Shield, MapPin, Calendar, Clock, DollarSign,
   CheckCircle, Circle, AlertCircle, MessageCircle, Radio,
   User, FileText, Loader2, ChevronDown, ChevronUp, Info,
-  Gavel, Scale, Search, BookOpen, HelpCircle
+  Gavel, Scale, Search, BookOpen, HelpCircle,
+  Upload, Download, Trash2, Paperclip, File as FileIcon, Image, X
 } from 'lucide-react';
+
+// ─── File type helpers ────────────────────────────────────────────────────────
+function extIcon(ext) {
+  const e = (ext || '').toLowerCase();
+  if (['.png', '.jpg', '.jpeg'].includes(e)) return Image;
+  return FileIcon;
+}
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ─── Documents panel (used in CaseDetailPage) ─────────────────────────────────
+const DocumentsPanel = ({ caseId, currentUserId, isLawyer = false }) => {
+  const [docs, setDocs] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [loadingDocs, setLoadingDocs] = useState(true);
+  const inputRef = useRef(null);
+
+  const fetchDocs = useCallback(async () => {
+    try {
+      const { data } = await axios.get(`${API_URL}/api/cases/${caseId}/documents`);
+      setDocs(data);
+    } catch {} finally { setLoadingDocs(false); }
+  }, [caseId]);
+
+  useEffect(() => { fetchDocs(); }, [fetchDocs]);
+
+  const uploadFile = async (file) => {
+    if (!file) return;
+    const allowed = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.txt', '.xlsx', '.xls'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) { alert(`File type not allowed: ${ext}`); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('File too large (max 10 MB)'); return; }
+    setUploading(true);
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const { data } = await axios.post(`${API_URL}/api/cases/${caseId}/documents`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setDocs(prev => [...prev, data]);
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Upload failed');
+    } finally { setUploading(false); }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault(); setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  };
+
+  const handleDelete = async (docId) => {
+    if (!window.confirm('Delete this document?')) return;
+    try {
+      await axios.delete(`${API_URL}/api/documents/${docId}`);
+      setDocs(prev => prev.filter(d => d.id !== docId));
+    } catch (err) { alert(err.response?.data?.detail || 'Delete failed'); }
+  };
+
+  const handleDownload = async (docId, name) => {
+    try {
+      const res = await axios.get(`${API_URL}/api/documents/${docId}/download`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+      window.URL.revokeObjectURL(url);
+    } catch { alert('Download failed'); }
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Drop zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        className={`border-2 border-dashed rounded-xl px-4 py-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors ${
+          dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
+        }`}
+      >
+        <input ref={inputRef} type="file" className="hidden"
+          accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,.xlsx,.xls"
+          onChange={e => { if (e.target.files[0]) uploadFile(e.target.files[0]); e.target.value = ''; }}
+        />
+        {uploading ? (
+          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+        ) : (
+          <Upload className="w-6 h-6 text-slate-400" />
+        )}
+        <p className="text-xs font-medium text-slate-500 text-center">
+          {uploading ? 'Uploading…' : 'Drop a file here or click to upload'}
+        </p>
+        <p className="text-[10px] text-slate-400">PDF, DOC, DOCX, PNG, JPG, TXT, XLSX · max 10 MB</p>
+      </div>
+
+      {/* File list */}
+      {loadingDocs ? (
+        <div className="flex justify-center py-3"><Loader2 className="w-5 h-5 text-slate-300 animate-spin" /></div>
+      ) : docs.length === 0 ? (
+        <p className="text-xs text-slate-400 text-center py-3">No documents attached yet</p>
+      ) : (
+        <div className="space-y-2">
+          {docs.map(doc => {
+            const Icon = extIcon(doc.extension);
+            const isOwner = doc.uploader_id === currentUserId;
+            return (
+              <motion.div
+                key={doc.id}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-3 bg-white border border-slate-100 rounded-xl px-3 py-2.5 hover:border-indigo-200 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+                  <Icon className="w-4 h-4 text-indigo-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-slate-800 truncate">{doc.original_name}</p>
+                  <p className="text-[10px] text-slate-400">
+                    {fmtSize(doc.size_bytes)} · {doc.uploader_name}
+                    <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                      doc.uploader_role === 'lawyer' ? 'bg-violet-100 text-violet-600' : 'bg-blue-100 text-blue-600'
+                    }`}>{doc.uploader_role}</span>
+                    · {doc.created_at ? new Date(doc.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => handleDownload(doc.id, doc.original_name)}
+                    className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-indigo-50 flex items-center justify-center transition-colors"
+                    title="Download"
+                  >
+                    <Download className="w-3.5 h-3.5 text-slate-500 hover:text-indigo-600" />
+                  </button>
+                  {isOwner && (
+                    <button
+                      onClick={() => handleDelete(doc.id)}
+                      className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-red-50 flex items-center justify-center transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" />
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── Pipeline definition ──────────────────────────────────────────────────────
 const PIPELINE = [
@@ -144,12 +301,14 @@ const CaseDetailPage = () => {
   const { caseId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const inputRef = useRef(null);
 
   const [caseData, setCaseData] = useState(null);
   const [liveStatus, setLiveStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [justUpdated, setJustUpdated] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
   const [expandedGuide, setExpandedGuide] = useState(true);
   const prevStatusRef = useRef(null);
 
@@ -627,6 +786,43 @@ const CaseDetailPage = () => {
                   </div>
                 </div>
               )}
+            </motion.div>
+            {/* ── Documents Panel ── */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+            >
+              <button
+                onClick={() => setShowDocs(v => !v)}
+                className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Paperclip className="w-4 h-4 text-indigo-500" />
+                  <span className="text-sm font-semibold text-slate-800">Documents &amp; Files</span>
+                </div>
+                {showDocs
+                  ? <ChevronUp className="w-4 h-4 text-slate-400" />
+                  : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
+              <AnimatePresence initial={false}>
+                {showDocs && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden border-t border-slate-100 px-6 py-4"
+                  >
+                    <DocumentsPanel
+                      caseId={caseId}
+                      currentUserId={user?.id}
+                      isLawyer={user?.role === 'lawyer'}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
           </div>
         </div>
