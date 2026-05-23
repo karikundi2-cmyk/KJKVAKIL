@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import ChatWidget from './components/ChatWidget';
 import StatusWatcher from './components/StatusWatcher';
 import DigestWatcher from './components/DigestWatcher';
+import SurveyModal from './components/SurveyModal';
 
 import Home from './pages/Home';
 import Services from './pages/Services';
@@ -62,6 +63,7 @@ function AppContent() {
       <ChatWidget />
       <StatusWatcher />
       <DigestWatcher />
+      <SurveyModal />
       <Toaster
         position="top-right"
         toastOptions={{

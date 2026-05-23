@@ -1338,7 +1338,28 @@ async def update_case_status(case_id: str, status_update: CaseStatusUpdate, curr
         
         if result.modified_count == 0:
             raise HTTPException(status_code=400, detail="Failed to update case status")
-        
+
+        # Auto-create satisfaction survey when case is completed/closed
+        if status_update.new_status in ("completed", "closed") and case.get("user_id") and case.get("lawyer_id"):
+            existing_survey = await db.surveys.find_one({"case_id": case_id})
+            if not existing_survey:
+                lawyer_doc = await db.users.find_one({"_id": ObjectId(case["lawyer_id"])}, {"name": 1})
+                await db.surveys.insert_one({
+                    "case_id": case_id,
+                    "client_id": case["user_id"],
+                    "lawyer_id": case["lawyer_id"],
+                    "lawyer_name": lawyer_doc.get("name", "Your Lawyer") if lawyer_doc else "Your Lawyer",
+                    "case_type": case.get("case_type", "Case"),
+                    "status": "pending",
+                    "created_at": datetime.now(timezone.utc),
+                })
+                await create_notification(
+                    case["user_id"],
+                    "⭐ How did your case go?",
+                    f"Your {case.get('case_type', 'case')} case is complete — please rate your lawyer.",
+                    "info",
+                )
+
         return {"message": "Case status updated successfully", "new_status": status_update.new_status}
     
     except Exception as e:
@@ -1957,7 +1978,124 @@ async def lawyer_case_patch_status(
     )
     if result.modified_count == 0:
         raise HTTPException(status_code=400, detail="Failed to update case status")
+
+    # Auto-create satisfaction survey when case is completed/closed
+    if body.new_status in ("completed", "closed") and case.get("user_id") and case.get("lawyer_id"):
+        existing_survey = await db.surveys.find_one({"case_id": case_id})
+        if not existing_survey:
+            lawyer_doc = await db.users.find_one({"_id": ObjectId(case["lawyer_id"])}, {"name": 1})
+            await db.surveys.insert_one({
+                "case_id": case_id,
+                "client_id": case["user_id"],
+                "lawyer_id": case["lawyer_id"],
+                "lawyer_name": lawyer_doc.get("name", "Your Lawyer") if lawyer_doc else "Your Lawyer",
+                "case_type": case.get("case_type", "Case"),
+                "status": "pending",
+                "created_at": datetime.now(timezone.utc),
+            })
+            await create_notification(
+                case["user_id"],
+                "⭐ How did your case go?",
+                f"Your {case.get('case_type', 'case')} case is complete — please rate your lawyer.",
+                "info",
+            )
+
     return {"message": "Case status updated successfully", "new_status": body.new_status}
+
+
+# ============ SATISFACTION SURVEYS ============
+
+@api_router.get("/survey/pending")
+async def get_pending_surveys(current_user: dict = Depends(get_current_user)):
+    """Return all pending satisfaction surveys for the logged-in client."""
+    if current_user["role"] != "client":
+        return []
+    surveys = await db.surveys.find(
+        {"client_id": current_user["id"], "status": "pending"}
+    ).sort("created_at", -1).to_list(10)
+    return [
+        {
+            "id": str(s["_id"]),
+            "case_id": s["case_id"],
+            "lawyer_id": s["lawyer_id"],
+            "lawyer_name": s.get("lawyer_name", "Your Lawyer"),
+            "case_type": s.get("case_type", "Case"),
+        }
+        for s in surveys
+    ]
+
+
+class SurveySubmit(BaseModel):
+    survey_id: str
+    rating: int
+    comment: Optional[str] = None
+
+
+@api_router.post("/survey/submit")
+async def submit_survey(body: SurveySubmit, current_user: dict = Depends(get_current_user)):
+    """Submit a satisfaction rating and create a lawyer review."""
+    if current_user["role"] != "client":
+        raise HTTPException(status_code=403, detail="Clients only")
+    if not (1 <= body.rating <= 5):
+        raise HTTPException(status_code=400, detail="Rating must be 1–5")
+    try:
+        survey_oid = ObjectId(body.survey_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid survey ID")
+
+    survey = await db.surveys.find_one({"_id": survey_oid, "client_id": current_user["id"]})
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+
+    # Mark survey done
+    await db.surveys.update_one(
+        {"_id": survey_oid},
+        {"$set": {"status": "submitted", "submitted_at": datetime.now(timezone.utc)}}
+    )
+
+    # Upsert review
+    lawyer_id = survey["lawyer_id"]
+    existing = await db.reviews.find_one({"lawyer_id": lawyer_id, "client_id": current_user["id"]})
+    if existing:
+        await db.reviews.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"rating": body.rating, "comment": body.comment or "", "updated_at": datetime.now(timezone.utc)}}
+        )
+    else:
+        await db.reviews.insert_one({
+            "lawyer_id": lawyer_id,
+            "client_id": current_user["id"],
+            "client_name": current_user.get("name", "Anonymous"),
+            "rating": body.rating,
+            "comment": body.comment or "",
+            "created_at": datetime.now(timezone.utc),
+        })
+
+    # Recalculate lawyer avg rating
+    all_reviews = await db.reviews.find({"lawyer_id": lawyer_id}).to_list(1000)
+    if all_reviews:
+        avg = round(sum(r["rating"] for r in all_reviews) / len(all_reviews), 1)
+        await db.users.update_one({"_id": ObjectId(lawyer_id)}, {"$set": {"rating": avg}})
+
+    return {"message": "Thank you for your feedback!", "rating": body.rating}
+
+
+@api_router.post("/survey/dismiss")
+async def dismiss_survey(body: dict, current_user: dict = Depends(get_current_user)):
+    """Dismiss a survey without submitting."""
+    if current_user["role"] != "client":
+        raise HTTPException(status_code=403, detail="Clients only")
+    survey_id = body.get("survey_id")
+    if not survey_id:
+        raise HTTPException(status_code=400, detail="survey_id required")
+    try:
+        await db.surveys.update_one(
+            {"_id": ObjectId(survey_id), "client_id": current_user["id"]},
+            {"$set": {"status": "dismissed"}}
+        )
+    except Exception:
+        pass
+    return {"message": "Survey dismissed"}
 
 
 # ============ CASE CHAT ENDPOINTS ============
