@@ -1274,6 +1274,37 @@ async def create_case(case_data: CaseCreate, current_user: dict = Depends(get_cu
         status_history=case_doc["status_history"]
     )
 
+@api_router.get("/cases/{case_id}/status")
+async def get_case_status(case_id: str, current_user: dict = Depends(get_current_user)):
+    """Lightweight live status endpoint — client or assigned lawyer only."""
+    try:
+        case = await db.cases.find_one({"_id": ObjectId(case_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid case ID")
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    uid = current_user["id"]
+    role = current_user.get("role")
+    if role == "client" and case.get("user_id") != uid:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if role == "lawyer" and case.get("lawyer_id") != uid:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    lawyer_name = None
+    if case.get("lawyer_id"):
+        lawyer = await db.users.find_one({"_id": ObjectId(case["lawyer_id"])}, {"name": 1})
+        lawyer_name = lawyer["name"] if lawyer else None
+
+    updated_at = case.get("updated_at") or case.get("created_at")
+    return {
+        "case_id": case_id,
+        "case_status": case.get("case_status", "submitted"),
+        "status_history": case.get("status_history", []),
+        "lawyer_name": lawyer_name,
+        "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else str(updated_at),
+    }
+
+
 @api_router.put("/cases/{case_id}/status")
 async def update_case_status(case_id: str, status_update: CaseStatusUpdate, current_user: dict = Depends(get_current_user)):
     """Update case status (lawyer only)"""

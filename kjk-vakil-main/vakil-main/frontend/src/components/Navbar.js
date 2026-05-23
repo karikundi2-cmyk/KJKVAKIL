@@ -62,6 +62,25 @@ const Navbar = () => {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  // Keyboard shortcut: press "/" to open menu and focus search; Escape to close
+  useEffect(() => {
+    const handleKey = (e) => {
+      const tag = e.target?.tagName?.toLowerCase();
+      const isTyping = tag === 'input' || tag === 'textarea' || e.target?.isContentEditable;
+      if (e.key === '/' && !isTyping && user) {
+        e.preventDefault();
+        setMenuOpen(true);
+        setSearch('');
+      }
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [user]);
+
   useEffect(() => {
     if (menuOpen && searchRef.current) {
       setTimeout(() => searchRef.current?.focus(), 80);
@@ -111,13 +130,17 @@ const Navbar = () => {
                 <div className="relative" ref={menuRef}>
                   <button
                     onClick={() => { setMenuOpen(!menuOpen); setSearch(''); }}
-                    className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+                    className="flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
                     data-testid="navbar-hamburger"
-                    aria-label="Open menu"
+                    aria-label="Open menu (or press /)"
+                    title="Press / to open"
                   >
                     {menuOpen
-                      ? <X className="w-5 h-5 text-slate-700" />
-                      : <Menu className="w-5 h-5 text-slate-700" />}
+                    ? <X className="w-5 h-5 text-slate-700" />
+                    : <Menu className="w-5 h-5 text-slate-700" />}
+                  {!menuOpen && (
+                    <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono text-slate-400 bg-slate-100 border border-slate-200 rounded px-1 py-0.5 leading-none">/</kbd>
+                  )}
                   </button>
 
                   {menuOpen && (
