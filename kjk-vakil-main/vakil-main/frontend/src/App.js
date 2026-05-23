@@ -6,6 +6,7 @@ import ChatWidget from './components/ChatWidget';
 import StatusWatcher from './components/StatusWatcher';
 import DigestWatcher from './components/DigestWatcher';
 import SurveyModal from './components/SurveyModal';
+import CaseDetailPage from './pages/CaseDetailPage';
 
 import Home from './pages/Home';
 import Services from './pages/Services';
@@ -46,6 +47,7 @@ function AppContent() {
         <Route path="/register" element={<Register />} />
         <Route path="/client/dashboard" element={<ProtectedRoute allowedRole="client"><ClientHome /></ProtectedRoute>} />
         <Route path="/client/cases" element={<ProtectedRoute allowedRole="client"><MyCases /></ProtectedRoute>} />
+        <Route path="/client/cases/:caseId" element={<ProtectedRoute allowedRole="client"><CaseDetailPage /></ProtectedRoute>} />
         <Route path="/client/affidavit" element={<ProtectedRoute allowedRole="client"><AffidavitBuilder /></ProtectedRoute>} />
         <Route path="/client/consultations" element={<ProtectedRoute><Consultations /></ProtectedRoute>} />
         <Route path="/client/payment-success" element={<ProtectedRoute allowedRole="client"><PaymentSuccess /></ProtectedRoute>} />

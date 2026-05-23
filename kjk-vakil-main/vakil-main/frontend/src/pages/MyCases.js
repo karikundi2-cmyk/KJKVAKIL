@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import {
   Loader2, FileText, MapPin, Calendar, Clock, Shield,
   ChevronDown, ChevronUp, CheckCircle, Circle, AlertCircle,
-  MessageCircle, Radio, RefreshCw, User
+  MessageCircle, Radio, RefreshCw, User, ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import API_URL from '../lib/api';
@@ -190,6 +191,7 @@ function statusLabel(s) {
 
 const MyCases = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedCase, setExpandedCase] = useState(null);
@@ -381,7 +383,15 @@ const MyCases = () => {
                           {updatedAt && <span className="flex items-center gap-1"><Radio className="w-3 h-3 text-green-500" />Updated {timeAgo(updatedAt)}</span>}
                         </div>
                       </div>
-                      <div className="ml-4 flex-shrink-0">
+                      <div className="ml-4 flex-shrink-0 flex flex-col items-end gap-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); navigate(`/client/cases/${c.id}`); }}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap"
+                          data-testid={`view-timeline-${c.id}`}
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          Full Timeline
+                        </button>
                         {expandedCase === c.id
                           ? <ChevronUp className="w-5 h-5 text-slate-400" />
                           : <ChevronDown className="w-5 h-5 text-slate-400" />}
